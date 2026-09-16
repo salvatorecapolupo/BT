@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Bluetooth — Come funziona</title>
+<title>Bluetooth — Come funziona (Web Bluetooth reale)</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -45,6 +45,23 @@ text-transform:none;letter-spacing:.6px;margin-top:3px;font-weight:700;
 text-shadow:0 0 16px var(--glow);
 }
 
+/* COMPAT BANNER */
+.compat{
+border-radius:14px;padding:12px 16px;font-size:12.5px;line-height:1.55;
+border:1px solid rgba(251,191,36,.35);background:rgba(251,191,36,.08);color:#f6d999;
+display:none;
+}
+.compat.show{display:block}
+.compat b{color:var(--am)}
+.compat.err{border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.08);color:#ffc9c4}
+.compat.err b{color:var(--rd)}
+
+/* BADGES */
+.badge{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.6px;
+padding:2px 8px;border-radius:6px;margin-left:8px;vertical-align:middle;text-transform:uppercase}
+.badge.real{background:rgba(52,211,153,.18);color:var(--gr);border:1px solid rgba(52,211,153,.4)}
+.badge.sim{background:rgba(251,191,36,.18);color:var(--am);border:1px solid rgba(251,191,36,.4)}
+
 /* STAGE */
 .stage{
 background:var(--card);border:1px solid var(--line);border-radius:20px;
@@ -69,7 +86,7 @@ text-shadow:0 1px 8px rgba(0,0,0,.5);
 }
 .dev .id{
 font-family:var(--mono);font-size:9.5px;color:#93a0ba;margin-top:4px;
-letter-spacing:.3px;font-weight:600;
+letter-spacing:.3px;font-weight:600;word-break:break-all;
 }
 .dev.me{border-color:rgba(59,158,255,.45);background:rgba(59,158,255,.08)}
 .dev.me .id{color:var(--bt2)}
@@ -122,7 +139,7 @@ transition:.3s;
 }
 .explain .eh{display:flex;align-items:center;gap:12px;margin-bottom:9px}
 .explain .eh .em{font-size:26px;line-height:1}
-.explain .eh h3{font-size:15px;font-weight:800;color:#fff}
+.explain .eh h3{font-size:15px;font-weight:800;color:#fff;display:flex;align-items:center}
 .explain .eh .small{font-size:11.5px;color:var(--dim);margin-top:1px}
 .explain p{font-size:13.5px;line-height:1.65;color:#c9d4e5}
 .explain p b{color:var(--bt2);font-weight:700}
@@ -188,7 +205,6 @@ animation:slideIn .35s cubic-bezier(.2,.9,.3,1.3) backwards;
 .msg .type{color:#8a97b1;font-size:10.5px;letter-spacing:.6px;font-weight:700;text-transform:uppercase}
 .msg .data{color:#eaf2fc;word-break:break-all;letter-spacing:.4px;font-weight:600}
 .msg .data .sep{color:#4a5872;margin:0 4px}
-.msg .data .ascii{color:var(--vi)}
 .msg .data .hint{color:var(--gr);font-style:italic}
 
 @media(max-width:680px){
@@ -220,13 +236,15 @@ button#mainBtn{width:100%;padding:14px}
 </div>
 <div>
 <h1>Bluetooth</h1>
-<div class="sub">Come due dispositivi si conoscono e si scambiano dati</div>
+<div class="sub">Scoperta e connessione reali via Web Bluetooth · pairing/cifratura ricostruiti</div>
 </div>
 <div class="my-id">
-Il tuo indirizzo Bluetooth
+Questa pagina (origin)
 <code id="myMac">—</code>
 </div>
 </header>
+
+<div class="compat" id="compat"></div>
 
 <section class="stage">
 
@@ -234,7 +252,7 @@ Il tuo indirizzo Bluetooth
 <div class="dev me">
 <div class="em">🖥️</div>
 <div class="nm">Questo dispositivo</div>
-<div class="id" id="meId">—</div>
+<div class="id" id="meId">browser</div>
 </div>
 <div class="beam" id="beam">
 <div class="lbl" id="beamLbl">nessun collegamento</div>
@@ -249,12 +267,12 @@ Il tuo indirizzo Bluetooth
 
 <div class="explain" id="explain">
 <div class="eh"><span class="em">👋</span><div><h3>Pronto a iniziare</h3><div class="small">Premi il pulsante qui sotto</div></div></div>
-<p>Il tuo chip Bluetooth ha un <b>indirizzo univoco</b>, come una targa. Serve perché gli altri dispositivi possano riconoscerlo e ricordarselo. Quando parlerà, vedrai qui sotto i <b>byte reali</b> che si scambiano.</p>
+<p>Premendo il pulsante il <b>browser</b> aprirà la sua finestra nativa di scansione Bluetooth: è lui a vedere i dispositivi vicini, per motivi di privacy JavaScript riceve solo quello che scegli. Da lì in poi la connessione e la lettura dei servizi sono <b>reali</b>.</p>
 </div>
 
 <div class="actions">
 <span class="prog" id="prog"></span>
-<button id="mainBtn">Cerca dispositivi</button>
+<button id="mainBtn">Cerca dispositivi Bluetooth</button>
 </div>
 
 <div class="pills" id="pills"></div>
@@ -267,40 +285,29 @@ Il tuo indirizzo Bluetooth
 const $=id=>document.getElementById(id);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
-/* ---- Indirizzo del chip locale ---- */
-const LOCAL_MAC = Array.from({length:6},()=>
-  Math.floor(Math.random()*256).toString(16).padStart(2,'0').toUpperCase()
-).join(':');
+const BT_SUPPORTED = 'bluetooth' in navigator;
+const IS_SECURE = window.isSecureContext;
 
-/* ---- Dispositivi finti ---- */
-const DEVICES=[
-  {name:'AuraBuds Pro',em:'🎧',mac:'A4:C1:38:9F:2E:07',ver:'5.3',proto:'BLE',rssi:-47},
-  {name:'Nexus Watch 4',em:'⌚',mac:'D8:3A:DD:71:B0:1C',ver:'5.2',proto:'BLE',rssi:-63},
-  {name:'CarAudio HU-900',em:'🚗',mac:'00:1B:DC:0F:E2:44',ver:'5.0',proto:'BR/EDR',rssi:-72},
-  {name:'SmartLock X2',em:'🔐',mac:'5C:F3:70:2A:88:91',ver:'4.2',proto:'BLE',rssi:-84},
-  {name:'ThermoSense',em:'🌡️',mac:'E8:9F:6D:14:52:AB',ver:'5.0',proto:'BLE',rssi:-91}
+/* Servizi GATT standard che proviamo a interrogare.
+   Il browser espone SOLO i servizi elencati qui (whitelist per privacy/sicurezza) */
+const KNOWN_SERVICES=[
+  {uuid:'battery_service',       name:'Battery Service',       em:'🔋'},
+  {uuid:'device_information',    name:'Device Information',    em:'ℹ️'},
+  {uuid:'generic_access',        name:'Generic Access',        em:'🔧'},
+  {uuid:'heart_rate',            name:'Heart Rate',            em:'❤️'},
+  {uuid:'health_thermometer',    name:'Health Thermometer',    em:'🌡️'},
+  {uuid:'human_interface_device',name:'Human Interface Device',em:'🖱️'},
+  {uuid:'generic_attribute',     name:'Generic Attribute',     em:'⚙️'}
 ];
 
-/* ---- Messaggi che si scambiano, fase per fase ---- */
-/* dir: 'tx' = dal mio chip verso l'altro · 'rx' = dall'altro verso di me */
-const PHASES=[
+/* Fasi SIMULATE (pairing + cifratura): il sistema operativo le gestisce
+   a un livello a cui JavaScript non ha accesso, quindi qui ricostruiamo
+   concettualmente cosa succede, con byte plausibili ma non reali. */
+const SIM_PHASES=[
 {
-  em:'🔍', title:'Scoperta', sub:'"C\'è qualcuno nei paraggi?"',
-  lbl:'inquiry',
-  text:'Il tuo chip manda un pacchetto di <b>INQUIRY</b> su 3 canali radio. Chi è vicino risponde con il proprio indirizzo. Il numero in <em>dBm</em> misura quanto è forte il segnale: <b>-40 = vicinissimo</b>, <b>-90 = lontano o con muri</b>.',
-  script:[
-    {dir:'tx', type:'HCI_INQUIRY', data:'01 04 00 00 33 8B 9E', hint:'chi c’è?', delay:0},
-    {dir:'rx', type:'ADV_IND',    data:'A4 C1 38 9F 2E 07', hint:'-47 dBm · BLE 5.3', delay:1100},
-    {dir:'rx', type:'ADV_IND',    data:'D8 3A DD 71 B0 1C', hint:'-63 dBm · BLE 5.2', delay:1000},
-    {dir:'rx', type:'ADV_IND',    data:'00 1B DC 0F E2 44', hint:'-72 dBm · BR/EDR 5.0', delay:1000},
-    {dir:'rx', type:'ADV_IND',    data:'5C F3 70 2A 88 91', hint:'-84 dBm · BLE 4.2', delay:1000},
-    {dir:'rx', type:'ADV_IND',    data:'E8 9F 6D 14 52 AB', hint:'-91 dBm · BLE 5.0', delay:1000}
-  ]
-},
-{
-  em:'🤝', title:'Accoppiamento', sub:'Ci presentiamo e creiamo una chiave',
+  em:'🤝', title:'Accoppiamento', sub:'Ci presentiamo e creiamo una chiave', badge:'sim',
   lbl:'pairing',
-  text:'I due chip si scambiano le <b>chiavi pubbliche</b> e calcolano in segreto la <b>stessa chiave</b>, senza mai dirla in chiaro. È come scegliere insieme una parola d\'ordine stando in mezzo alla folla.',
+  text:'I due chip si scambiano le <b>chiavi pubbliche</b> e calcolano in segreto la <b>stessa chiave</b>, senza mai dirla in chiaro. Questo avviene nel sistema operativo: JavaScript non può vederlo, qui è <b>ricostruito</b> con byte plausibili.',
   script:[
     {dir:'tx', type:'PAIRING_REQ', data:'01 10 04 00 03 00', hint:'DisplayYesNo', delay:0},
     {dir:'rx', type:'PAIRING_RES', data:'02 10 03 01 01 08', hint:'MITM + SecureConn', delay:1100},
@@ -310,41 +317,44 @@ const PHASES=[
   ]
 },
 {
-  em:'🔒', title:'Cifratura', sub:'Parliamo in codice',
+  em:'🔒', title:'Cifratura', sub:'Parliamo in codice', badge:'sim',
   lbl:'encrypted',
-  text:'Da adesso ogni pacchetto è cifrato con <b>AES-128</b> usando la chiave appena creata. Anche intercettando le onde radio, si vedrebbe solo rumore. Ogni pacchetto porta con sé un <em>MIC</em>, una firma che ne garantisce l\'integrità.',
+  text:'Da adesso ogni pacchetto verrebbe cifrato con <b>AES-128</b>. Anche questo è invisibile a JavaScript per progetto (è compito del sistema operativo): la ricostruzione qui sotto mostra la forma tipica dei pacchetti, non i byte reali del tuo dispositivo.',
   script:[
     {dir:'tx', type:'ENABLE_ENC',  data:'05 20 01 00 1C 00 00 00', hint:'attiva cifratura', delay:0},
     {dir:'rx', type:'ENC_CHANGED', data:'06 20 01 00 1C 00', hint:'cifratura attiva ✓', delay:1100},
     {dir:'tx', type:'AES-128-CCM', data:'B4 8A 91 2F C0 44 7E 11', hint:'payload cifrato', delay:1200},
     {dir:'rx', type:'MIC',         data:'7E 11 33 A0', hint:'firma integrità', delay:1100}
   ]
-},
-{
-  em:'✨', title:'Connesso', sub:'Il link è attivo',
-  lbl:'connected',
-  text:'Fatto. I due dispositivi si scambiano dati cambiando canale <b>1600 volte al secondo</b>, saltando tra 40 frequenze per non disturbare Wi-Fi e altri segnali. Il flusso qui sotto è continuo.',
-  script:[
-    {dir:'tx', type:'ATT_MTU_REQ', data:'02 03 00 05 02 00', hint:'MTU 517', delay:0},
-    {dir:'rx', type:'ATT_MTU_RES', data:'03 03 00 05 02 00', hint:'MTU 517 ✓', delay:1000}
-  ]
 }
 ];
 
 /* ---- Stato ---- */
-const state={stage:'start', phase:0, selected:null, token:0, flow:null, phaseTimers:[]};
-
-/* ---- Init UI ---- */
-$('myMac').textContent = LOCAL_MAC;
-$('meId').textContent  = LOCAL_MAC;
+const state={stage:'start', simPhase:0, token:0, phaseTimers:[], flow:null,
+             realDevice:null, gattServer:null, foundServices:[]};
 
 const beam=$('beam'), beamLbl=$('beamLbl'), bus=$('bus');
 
+/* ---- Compat check ---- */
+function showCompat(){
+  const el=$('compat');
+  if(!BT_SUPPORTED){
+    el.classList.add('show','err');
+    el.innerHTML='<b>Web Bluetooth non disponibile in questo browser.</b> Funziona su Chrome/Edge desktop e Android (via HTTPS). Safari e Firefox non lo supportano, e su iOS non è disponibile in nessun browser (limite di Apple, non della pagina).';
+    setBtn('Non disponibile', true);
+  } else if(!IS_SECURE){
+    el.classList.add('show','err');
+    el.innerHTML='<b>Serve una pagina HTTPS (o localhost).</b> Web Bluetooth richiede un contesto sicuro.';
+    setBtn('Contesto non sicuro', true);
+  } else {
+    el.classList.add('show');
+    el.innerHTML='<b>Nota:</b> lo scanner e la connessione qui sotto sono <b>reali</b> (Web Bluetooth API). Pairing e cifratura restano <b>ricostruzioni illustrative</b>, perché il browser li gestisce a livello di sistema operativo e non li espone a JavaScript, per motivi di sicurezza.';
+  }
+}
+showCompat();
+
 /* ---- Utility ---- */
-const rssiClass = r => r>-65 ? '' : (r>-80 ? 'w' : 'bad');
-const rssiWord  = r => r>-55 ? 'fortissimo' : r>-65 ? 'forte' : r>-75 ? 'buono' : r>-85 ? 'debole' : 'molto debole';
-const hexPair   = () => Math.floor(Math.random()*256).toString(16).padStart(2,'0').toUpperCase();
-const randHex   = n => Array.from({length:n},hexPair).join(' ');
+const randHex = n => Array.from({length:n},()=>Math.floor(Math.random()*256).toString(16).padStart(2,'0').toUpperCase()).join(' ');
 
 function clearTimers(){
   state.phaseTimers.forEach(t=>clearTimeout(t));
@@ -352,24 +362,17 @@ function clearTimers(){
   if(state.flow){clearInterval(state.flow);state.flow=null;}
   [...beam.querySelectorAll('.pkt')].forEach(e=>e.remove());
 }
+function setBeam(mode){ beam.classList.toggle('active', mode==='active'); }
 
-/* ---- Beam ---- */
-function setBeam(mode){
-  beam.classList.toggle('active', mode==='active');
-}
-
-/* ---- Flying capsule ---- */
 function flyCapsule(dir, data, mode){
   const preview = data.split(/\s+/).slice(0,2).join(' ');
   const c=document.createElement('div');
   c.className='pkt '+dir+(mode==='enc'?' enc':'');
   c.textContent = preview || '·';
   beam.appendChild(c);
-
   const fromLeft = dir==='tx';
   const from = fromLeft ? '12%' : '88%';
   const to   = fromLeft ? '88%' : '12%';
-
   c.animate([
     {left:from,opacity:0,transform:'translate(-50%,-50%) scale(.6)'},
     {opacity:1,transform:'translate(-50%,-50%) scale(1)',offset:.15},
@@ -377,39 +380,30 @@ function flyCapsule(dir, data, mode){
   ],{duration:1500,easing:'ease-in-out'}).onfinish=()=>c.remove();
 }
 
-/* ---- Bus message ---- */
 function addMessage(dir, type, data, hint){
   const m=document.createElement('div');
   m.className='msg '+dir;
   const arrow = dir==='tx' ? '▸' : '◂';
-  const dataHtml = data.split(' ').map((b,i)=>
-    (i===3 ? '</span><span class="sep">·</span><span class="ascii">' : '') + b
-  ).join(' ').replace(/^/,'<span class="hex">').replace(/$/,'</span>');
-
   m.innerHTML=
     '<span class="dir">'+arrow+'</span>'+
     '<span class="type">'+type+'</span>'+
-    '<span class="data">'+
-      data.split(' ').map(b=>b).join(' ')+
+    '<span class="data">'+data+
       (hint ? ' <span class="sep">·</span> <span class="hint">'+hint+'</span>' : '')+
     '</span>';
   bus.appendChild(m);
   while(bus.children.length>40) bus.removeChild(bus.firstChild);
   bus.scrollTop=bus.scrollHeight;
 }
-
-/* ---- sendMessage: fa volare il pacchetto E lo registra ---- */
 function sendMessage(dir, type, data, hint, mode){
   addMessage(dir, type, data, hint);
   flyCapsule(dir, data, mode);
 }
 
-/* ---- Run a phase script ---- */
 function runScript(phase, token, offset){
   let t = offset||0;
   phase.script.forEach(msg=>{
     t += msg.delay||0;
-    const id = setTimeout(()=>{
+    const id=setTimeout(()=>{
       if(token!==state.token) return;
       sendMessage(msg.dir, msg.type, msg.data, msg.hint, phase.lbl==='encrypted'?'enc':null);
     }, t);
@@ -418,11 +412,11 @@ function runScript(phase, token, offset){
   return t;
 }
 
-/* ---- UI helpers ---- */
-function setExplain(em,title,sub,text){
+function setExplain(em,title,sub,text,badge){
+  const b = badge ? ' <span class="badge '+badge+'">'+(badge==='real'?'reale':'simulato')+'</span>' : '';
   $('explain').innerHTML=
     '<div class="eh"><span class="em">'+em+'</span>'+
-    '<div><h3>'+title+'</h3><div class="small">'+sub+'</div></div></div>'+
+    '<div><h3>'+title+b+'</h3><div class="small">'+sub+'</div></div></div>'+
     '<p>'+text+'</p>';
 }
 function setProg(html){ $('prog').innerHTML=html||''; }
@@ -433,135 +427,197 @@ function resetThem(){
   $('themNm').textContent='Nessuno';
   $('themId').textContent='—';
 }
-function showThem(d){
+function showThem(name, id, em){
   $('themDev').classList.add('on');
-  $('themDev').querySelector('.em').textContent=d.em;
-  $('themNm').textContent=d.name;
-  $('themId').textContent=d.mac;
+  $('themDev').querySelector('.em').textContent=em||'📶';
+  $('themNm').textContent=name||'(senza nome)';
+  $('themId').textContent=id;
 }
 
-/* ---- SCAN ---- */
+/* ---- ERRORI ---- */
+function handleBtError(err){
+  let msg;
+  if(err.name==='NotFoundError') msg='Nessun dispositivo selezionato: hai annullato la finestra di scelta del browser, oppure nessun dispositivo compatibile era nel raggio.';
+  else if(err.name==='SecurityError') msg='Il browser ha bloccato la richiesta: Web Bluetooth funziona solo su HTTPS e serve un click diretto dell’utente (non può partire da solo).';
+  else if(err.name==='NetworkError') msg='Connessione GATT fallita: il dispositivo potrebbe essere fuori portata, spento o già connesso a un altro apparecchio.';
+  else msg = err.message || 'Errore Bluetooth non previsto.';
+  setExplain('⚠️','Errore', err.name||'Errore', msg);
+  setBtn('Riprova', false);
+  setProg('');
+  state.stage='start';
+}
+
+/* ---- FASE 1: scoperta reale ---- */
 async function doScan(){
+  if(!BT_SUPPORTED || !IS_SECURE) return;
   const tk=++state.token;
-  state.stage='scanning';
-  clearTimers();
-  bus.innerHTML='';
-  $('pills').innerHTML='';
-  resetThem();
-  setBeam('active'); beamLbl.textContent='ricerca canali 37 · 38 · 39…';
-  setBtn('Sto cercando…',true);
-  setProg('passo 1 di 4');
-  setExplain('🔍','Scoperta','Ascolto i canali radio',
-    'Sto mandando un pacchetto <b>INQUIRY</b> su 3 canali. Chi risponde si presenta con il proprio indirizzo a 6 byte. Sotto vedrai i byte reali di ogni risposta.');
+  clearTimers(); bus.innerHTML=''; $('pills').innerHTML=''; resetThem();
+  setBeam('active'); beamLbl.textContent='attesa selettore browser…';
+  setBtn('Apertura selettore…', true);
+  setProg('passo 1 di 3');
+  setExplain('🔍','Scoperta reale','Sta per aprirsi la finestra nativa del browser',
+    'Il browser userà il proprio stack Bluetooth per cercare dispositivi vicini. Solo <b>lui</b> vede l\'elenco completo — per privacy, un sito web non può fare scansione libera in background.','real');
 
-  // messaggio iniziale subito
-  sendMessage('tx','HCI_INQUIRY','01 04 00 00 33 8B 9E','chi c’è?');
-
-  await sleep(1200);
-  if(tk!==state.token) return;
-
-  for(let i=0;i<DEVICES.length;i++){
+  try{
+    const device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices:true,
+      optionalServices: KNOWN_SERVICES.map(s=>s.uuid)
+    });
     if(tk!==state.token) return;
-    const d=DEVICES[i];
-    // messaggio rx reale sul bus
-    sendMessage('rx','ADV_IND', d.mac, d.rssi+' dBm · '+d.proto+' '+d.ver);
-    // pillola cliccabile
-    const p=document.createElement('button');
-    p.className='pill '+rssiClass(d.rssi);
-    p.innerHTML='<span class="sig"></span>'+d.em+' '+d.name+
-      ' <span class="dbm">'+d.rssi+' dBm</span>';
-    p.onclick=()=>pickDevice(i,p);
-    $('pills').appendChild(p);
-    beamLbl.textContent='trovato: '+d.name;
-    await sleep(650);
+    state.realDevice=device;
+    onDeviceChosen(device, tk);
+  }catch(err){
+    if(tk!==state.token) return;
+    handleBtError(err);
+  }
+}
+
+function onDeviceChosen(device, tk){
+  showThem(device.name, device.id, '📶');
+  sendMessage('rx','DEVICE_CHOSEN', (device.name||'senza nome'), 'id: '+device.id.slice(0,18)+'…');
+  setBeam(false); beamLbl.textContent='dispositivo scelto';
+  state.stage='picked';
+  setBtn('Connetti (GATT reale)', false);
+  setProg('passo 2 di 3');
+  setExplain('🎯','Scelto', device.name || '(senza nome)',
+    'ID assegnato dal browser: <code>'+device.id+'</code>. <em>Non è il vero indirizzo MAC</em> — Web Bluetooth lo nasconde per privacy e genera un identificatore diverso per ogni sito. Premi per aprire una connessione GATT reale.','real');
+
+  device.addEventListener('gattserverdisconnected', ()=>{
+    if(tk!==state.token) return;
+    addMessage('rx','DISCONNECTED', '—', 'connessione persa');
+    setBeam(false); beamLbl.textContent='disconnesso';
+  });
+
+  // RSSI reale, solo se il browser lo supporta (funzione sperimentale)
+  if('watchAdvertisements' in device){
+    device.addEventListener('advertisementreceived', ev=>{
+      if(tk!==state.token) return;
+      if(typeof ev.rssi==='number'){
+        addMessage('rx','RSSI', ev.rssi+' dBm', 'segnale reale');
+      }
+    });
+    device.watchAdvertisements().catch(()=>{ /* permesso negato o non supportato: si ignora in silenzio */ });
+  }
+}
+
+/* ---- FASE 2: connessione GATT reale ---- */
+async function connectGatt(){
+  const tk=state.token;
+  const device=state.realDevice;
+  setBeam('active'); beamLbl.textContent='gatt.connect()';
+  setBtn('Connessione…', true);
+  setExplain('🔌','Connessione GATT','Apertura canale dati reale',
+    'Chiamata reale a <code>device.gatt.connect()</code>: il browser apre un canale dati verso il dispositivo scelto.','real');
+  try{
+    const server = await device.gatt.connect();
+    if(tk!==state.token) return;
+    state.gattServer=server;
+    sendMessage('tx','GATT_CONNECT','req','apertura canale');
+    await sleep(300);
+    sendMessage('rx','GATT_CONNECTED','ok','canale aperto ✓');
+    await discoverServices(tk);
+  }catch(err){
+    handleBtError(err);
+  }
+}
+
+/* ---- FASE 3: servizi/caratteristiche reali ---- */
+async function discoverServices(tk){
+  setExplain('🧩','Servizi GATT reali','Interrogo i servizi noti',
+    'Il browser lascia leggere solo i servizi elencati in anticipo (whitelist di sicurezza). Provo uno per uno quelli standard: se il dispositivo li espone, li vedrai comparire con dati reali.','real');
+  setProg('passo 3 di 3');
+  state.foundServices=[];
+  for(const s of KNOWN_SERVICES){
+    if(tk!==state.token) return;
+    try{
+      const svc = await state.gattServer.getPrimaryService(s.uuid);
+      state.foundServices.push({...s, svc});
+      sendMessage('rx','GATT_SERVICE', s.name, 'trovato ✓');
+      await sleep(250);
+    }catch(e){ /* servizio non presente su questo dispositivo: si salta */ }
   }
 
-  if(tk!==state.token) return;
-  setBeam(false); beamLbl.textContent='tocca un dispositivo';
-  state.stage='scanned';
-  setBtn('Scegli un dispositivo',true);
-  setProg('passo 2 di 4');
-  setExplain('👆','Scegli','Tocca una pillola qui sotto',
-    'Ogni pillola ha il <b>nome</b> del dispositivo, il suo <b>MAC</b> (6 byte) e l\'intensità in <em>dBm</em>. Confronta <b>-47</b> con <b>-91</b>: il primo è molto più forte, quindi più vicino. Scegli quello che vuoi collegare.');
+  if(state.foundServices.length===0){
+    sendMessage('rx','GATT_SERVICE','nessuno tra quelli noti','—');
+  }
+
+  // prova concreta: se c'è la batteria, legge il livello reale
+  const batt = state.foundServices.find(s=>s.uuid==='battery_service');
+  let battPct=null;
+  if(batt){
+    try{
+      const ch = await batt.svc.getCharacteristic('battery_level');
+      const val = await ch.readValue();
+      battPct = val.getUint8(0);
+      sendMessage('rx','BATTERY_LEVEL', battPct+'%', 'lettura reale dal dispositivo');
+    }catch(e){ /* caratteristica non leggibile */ }
+  }
+
+  setBeam(false); beamLbl.textContent='connesso · gatt';
+  const list = state.foundServices.map(s=>s.em+' '+s.name).join(', ') || 'nessun servizio tra quelli noti a questa demo';
+  setExplain('✅','Connesso', state.foundServices.length+' servizi trovati',
+    'Servizi reali individuati: <b>'+list+'</b>.'+
+    (battPct!=null ? ' Batteria letta dal vero dispositivo: <b>'+battPct+'%</b>.' : ' Molti dispositivi (es. cuffie consumer) non espongono servizi standard leggibili da browser, quindi è normale trovarne pochi o nessuno.')+
+    '<br><br>Da qui in poi la demo passa alla parte <b>simulata</b>: pairing e cifratura, che il sistema operativo gestisce senza mai mostrarli a JavaScript.','real');
+
+  state.stage='afterGatt';
+  setBtn('Vedi pairing e cifratura (simulati) →', false);
 }
 
-/* ---- PICK ---- */
-function pickDevice(i, el){
-  if(state.stage!=='scanned') return;
-  state.selected=DEVICES[i];
-  [...$('pills').children].forEach(c=>c.classList.remove('sel'));
-  el.classList.add('sel');
-  showThem(DEVICES[i]);
-  state.stage='picked';
-  setBtn('Avvia connessione');
-  setProg('passo 3 di 4');
-  const d=DEVICES[i];
-  setExplain('🎯','Scelto','Hai scelto '+d.name,
-    'MAC <b>'+d.mac+'</b> · Bluetooth <b>'+d.ver+'</b> · tipo <b>'+d.proto+'</b> · segnale <b>'+d.rssi+' dBm</b> ('+rssiWord(d.rssi)+').<br>Pronto a collegarti? I prossimi passaggi ti mostreranno i byte reali dello scambio.');
-}
-
-/* ---- ENTER PHASE ---- */
-function enterPhase(i){
-  const p=PHASES[i];
+/* ---- FASI SIMULATE: pairing / cifratura ---- */
+function enterSimPhase(i){
+  const p=SIM_PHASES[i];
   const tk=state.token;
-  setExplain(p.em, (i+1)+' · '+p.title, p.sub, p.text);
-  setProg('fase <b>'+(i+1)+'</b> di '+PHASES.length);
+  setExplain(p.em, p.title, p.sub, p.text, p.badge);
+  setProg('ricostruzione <b>'+(i+1)+'</b> di '+SIM_PHASES.length);
   setBeam(true);
-  beamLbl.textContent = p.lbl==='inquiry' ? 'inquiry' :
-                        p.lbl==='pairing' ? 'pairing' :
-                        p.lbl==='encrypted' ? 'aes-128-ccm' :
-                        'link attivo';
-
+  beamLbl.textContent = p.lbl==='pairing' ? 'pairing (simulato)' : 'aes-128-ccm (simulato)';
   runScript(p, tk, 0);
 
-  // flusso continuo nella fase finale
-  if(i===PHASES.length-1){
+  if(i===SIM_PHASES.length-1){
     state.flow=setInterval(()=>{
       if(tk!==state.token) return;
       const dir = Math.random()>.5 ? 'tx' : 'rx';
-      const type = dir==='tx' ? 'DATA' : 'NOTIFY';
-      sendMessage(dir, type, randHex(6), 'cifrato', 'enc');
+      sendMessage(dir, dir==='tx'?'DATA':'NOTIFY', randHex(6), 'cifrato (simulato)', 'enc');
     }, 1100);
   }
-
-  setBtn(i===PHASES.length-1 ? '↻ Ricomincia' : 'Avanti →');
+  setBtn(i===SIM_PHASES.length-1 ? '↻ Ricomincia' : 'Avanti →');
 }
 
 /* ---- RESET ---- */
 function reset(){
   state.token++;
   clearTimers();
+  if(state.gattServer && state.gattServer.connected){
+    try{ state.gattServer.disconnect(); }catch(e){}
+  }
   state.stage='start';
-  state.selected=null;
-  $('pills').innerHTML='';
-  bus.innerHTML='';
-  resetThem();
-  setBeam(false);
-  beamLbl.textContent='nessun collegamento';
-  setBtn('Cerca dispositivi');
+  state.realDevice=null; state.gattServer=null; state.foundServices=[]; state.simPhase=0;
+  $('pills').innerHTML=''; bus.innerHTML='';
+  resetThem(); setBeam(false); beamLbl.textContent='nessun collegamento';
   setProg('');
   setExplain('👋','Pronto a iniziare','Premi il pulsante qui sotto',
-    'Il tuo chip Bluetooth ha un <b>indirizzo univoco</b>, come una targa. Quando parlerà, vedrai qui sotto i <b>byte reali</b> che si scambiano.');
+    'Premendo il pulsante il <b>browser</b> aprirà la sua finestra nativa di scansione Bluetooth: è lui a vedere i dispositivi vicini, per motivi di privacy JavaScript riceve solo quello che scegli. Da lì in poi la connessione e la lettura dei servizi sono <b>reali</b>.');
+  setBtn(BT_SUPPORTED && IS_SECURE ? 'Cerca dispositivi Bluetooth' : 'Non disponibile', !(BT_SUPPORTED && IS_SECURE));
 }
 
 /* ---- MAIN BUTTON ---- */
 $('mainBtn').onclick=()=>{
   if(state.stage==='start') doScan();
-  else if(state.stage==='scanned') return;
-  else if(state.stage==='picked'){
-    state.stage='walking';
-    state.phase=0;
-    enterPhase(0);
+  else if(state.stage==='picked') connectGatt();
+  else if(state.stage==='afterGatt'){
+    state.stage='simulating';
+    state.simPhase=0;
+    enterSimPhase(0);
   }
-  else if(state.stage==='walking'){
-    if(state.phase<PHASES.length-1){
-      state.phase++;
-      enterPhase(state.phase);
+  else if(state.stage==='simulating'){
+    if(state.simPhase<SIM_PHASES.length-1){
+      state.simPhase++;
+      enterSimPhase(state.simPhase);
     } else {
       reset();
     }
   }
-  else if(state.stage==='done') reset();
 };
 
 /* init */
